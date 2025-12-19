@@ -1,0 +1,324 @@
+# ============================================================
+# InkFlow 2.0 - AI原生小说创作平台配置
+# ============================================================
+
+spring:
+  application:
+    name: inkflow-backend-v2
+  
+  # ==================== 虚拟线程配置 ====================
+  # Java 22 Virtual Threads - 支持百万级并发
+  threads:
+    virtual:
+      enabled: true
+  
+  # ==================== 数据库配置 ====================
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:novel_db}
+    username: ${DB_USERNAME:inkFlow}
+    password: ${DB_PASSWORD:qaz123456}
+    hikari:
+      # 连接池配置 - 虚拟线程场景下可适当增大
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  
+  # ==================== JPA配置 ====================
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        # 批量操作优化
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+    open-in-view: false
+  
+  # ==================== Flyway数据库迁移 ====================
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+  
+  # ==================== Redis缓存配置 ====================
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:qaz123456}
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+  
+  # ==================== Spring AI配置 ====================
+  # 注意: LLM (DeepSeek/OpenAI等) 的 API Key 由用户在前端配置，存储在数据库中
+  # 这里只配置 Embedding 和 VectorStore，禁用 Chat 自动配置
+  ai:
+    # 1. 配置 Embedding (连接 TEI-Embedding 8081)
+    openai:
+      base-url: http://localhost:8081 # TEI 兼容 OpenAI 格式
+      api-key: sk-dummy # TEI 不需要 key，但 Spring AI 必须要填一个非空的
+      embedding:
+        options:
+          model: BAAI/bge-m3 # 必须与 docker command 中的 model-id 一致
+
+    # 2. 配置 Vector Store (连接 PG 5432)
+    vectorstore:
+      pgvector:
+        url: jdbc:postgresql://localhost:5432/novel_db
+        user: spring_ai
+        password: mysecretpassword
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 1024 # BGE-M3 维度
+
+# ==================== 服务器配置 ====================
+server:
+  port: ${SERVER_PORT:8080}
+  # 注意: 不使用 context-path，所有 Controller 已经使用 /api 前缀
+  # 启用HTTP/2
+  http2:
+    enabled: true
+
+# ==================== 可观测性配置 ====================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  tracing:
+    sampling:
+      probability: 1.0
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# ==================== 日志配置 ====================
+logging:
+  level:
+    root: INFO
+    com.inkflow: DEBUG
+    org.springframework.ai: DEBUG
+    org.hibernate.SQL: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# ==================== InkFlow自定义配置 ====================
+inkflow:
+  # AI配置
+  ai:
+    default-provider: openai
+    retry:
+      max-attempts: 3
+      backoff: 1s
+    # 错误处理配置
+    error:
+      max-retries: 3
+      initial-backoff-ms: 1000
+      max-backoff-ms: 30000
+      backoff-multiplier: 2.0
+    # 深度推理配置
+    deep-reasoning:
+      enabled: true
+      fallback-to-main: true
+  
+  # Tool 日志配置
+  tool-logging:
+    retention-days: 30
+    include-stack-trace: false
+  
+  # 预检配置
+  preflight:
+    ai-enhanced: false
+  
+  # 风格配置
+  style:
+    min-samples: 3
+    max-samples: 5
+  
+  # 缓存配置
+  cache:
+    embedding:
+      ttl: 24h
+      max-size: 10000
+    local:
+      ttl: 5m
+      max-size: 1000
+  
+  # 安全配置
+  security:
+    # JWT配置
+    jwt:
+      # 签名密钥（生产环境必须更换，至少32字节）
+      secret: ${JWT_SECRET:dGhpcy1pcy1hLXZlcnktc2VjdXJlLWtleS1mb3ItaW5rZmxvdy0yMDI1}
+      # 访问令牌过期时间（默认15分钟）
+      access-token-expiration: 15m
+      # 刷新令牌过期时间（默认7天）
+      refresh-token-expiration: 7d
+      # 令牌签发者
+      issuer: inkflow
+    
+    # API Key加密密钥（AES-256，Base64编码的32字节密钥）
+    encryption-key: ${ENCRYPTION_KEY:YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=}
+  
+  # 限流配置
+  rate-limit:
+    enabled: true
+    capacity: 100
+    refill-rate: 10
+  
+  # CDC 配置
+  cdc:
+    enabled: ${CDC_ENABLED:true}
+    poll-interval-ms: ${CDC_POLL_INTERVAL:100}
+  
+  # 一致性检查配置
+  consistency:
+    debounce-seconds: ${CONSISTENCY_DEBOUNCE:2}
+    rate-limit-minutes: ${CONSISTENCY_RATE_LIMIT:5}
+  
+  # Agent 架构配置
+  agent:
+    # Fast Path 配置
+    fast-path:
+      enabled: true
+      command-prefixes:
+        - /write
+        - /plan
+        - /check
+        - /name
+        - /world
+        - /character
+    
+    # ThinkingAgent 配置
+    thinking:
+      rule-confidence-threshold: 0.9
+      llm-model: deepseek-chat
+      timeout-ms: 2000
+    
+    # 懒执行配置
+    lazy-execution:
+      auto-trigger:
+        summary: after-chapter-complete
+        extraction: after-content-save
+    
+    # Context Bus 配置
+    context-bus:
+      # 类型: memory (默认) 或 redis
+      type: ${CONTEXT_BUS_TYPE:memory}
+      # 会话过期时间
+      session-ttl: 24h
+      # 清理间隔
+      cleanup-interval: 1h
+
+  # ==================== RAG配置 ====================
+  # V2 RAG Migration
+  rag:
+    # 混合检索配置
+    hybrid-search:
+      rrf-k: ${RAG_RRF_K:60.0}
+      vector-weight: ${RAG_VECTOR_WEIGHT:0.7}
+      keyword-weight: ${RAG_KEYWORD_WEIGHT:0.3}
+      enable-reranker: ${RAG_ENABLE_RERANKER:true}
+      default-top-k: ${RAG_DEFAULT_TOP_K:10}
+      recall-multiplier: ${RAG_RECALL_MULTIPLIER:2}
+      similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.95}
+    
+    # 向量嵌入配置
+    embedding:
+      provider: ${RAG_EMBEDDING_PROVIDER:local-ollama}
+      endpoint: ${RAG_EMBEDDING_ENDPOINT:http://localhost:8093}
+      api-path: ${RAG_EMBEDDING_API_PATH:v1/embeddings}
+      model: ${RAG_EMBEDDING_MODEL:qwen3-embedding}
+      dimension: ${RAG_EMBEDDING_DIMENSION:2560}
+      batch-size: ${RAG_EMBEDDING_BATCH_SIZE:32}
+      timeout-ms: ${RAG_EMBEDDING_TIMEOUT:5000}
+      max-retries: ${RAG_EMBEDDING_MAX_RETRIES:3}
+      retry-delay-ms: ${RAG_EMBEDDING_RETRY_DELAY:100}
+      enable-cache: ${RAG_EMBEDDING_ENABLE_CACHE:true}
+      cache-expiration-seconds: ${RAG_EMBEDDING_CACHE_EXPIRATION:3600}
+      cache-max-size: ${RAG_EMBEDDING_CACHE_MAX_SIZE:10000}
+      enable-fallback: ${RAG_EMBEDDING_ENABLE_FALLBACK:true}
+      circuit-breaker:
+        enabled: ${RAG_EMBEDDING_CIRCUIT_BREAKER_ENABLED:true}
+        failure-threshold: ${RAG_EMBEDDING_FAILURE_THRESHOLD:5}
+        recovery-timeout-ms: ${RAG_EMBEDDING_RECOVERY_TIMEOUT:30000}
+    
+    # 语义分块配置
+    chunking:
+      max-child-size: ${RAG_MAX_CHILD_SIZE:400}
+      min-child-size: ${RAG_MIN_CHILD_SIZE:100}
+      target-child-size: ${RAG_TARGET_CHILD_SIZE:250}
+      max-parent-size: ${RAG_MAX_PARENT_SIZE:1500}
+      min-parent-size: ${RAG_MIN_PARENT_SIZE:150}
+      cliff-threshold: ${RAG_CLIFF_THRESHOLD:0.2}
+      similarity-threshold: ${RAG_CHUNKING_SIMILARITY_THRESHOLD:0.3}
+      use-reranker: ${RAG_USE_RERANKER:true}
+      context-window-size: ${RAG_CONTEXT_WINDOW_SIZE:1000}
+      context-overlap-size: ${RAG_CONTEXT_OVERLAP_SIZE:100}
+    
+    # 全文搜索配置
+    full-text:
+      enabled: ${RAG_FULLTEXT_ENABLED:true}
+      # 默认使用 chinese (zhparser) 进行中文分词
+      language: ${RAG_FULLTEXT_LANGUAGE:chinese}
+      title-weight: ${RAG_FULLTEXT_TITLE_WEIGHT:A}
+      content-weight: ${RAG_FULLTEXT_CONTENT_WEIGHT:B}
+      timeout-ms: ${RAG_FULLTEXT_TIMEOUT:5000}
+      max-retries: ${RAG_FULLTEXT_MAX_RETRIES:2}
+      retry-delay-ms: ${RAG_FULLTEXT_RETRY_DELAY:100}
+      fallback-to-keyword: ${RAG_FULLTEXT_FALLBACK:true}
+      highlight:
+        enabled: ${RAG_HIGHLIGHT_ENABLED:true}
+        max-words: ${RAG_HIGHLIGHT_MAX_WORDS:35}
+        min-words: ${RAG_HIGHLIGHT_MIN_WORDS:15}
+        short-word: ${RAG_HIGHLIGHT_SHORT_WORD:3}
+        highlight-all: ${RAG_HIGHLIGHT_ALL:false}
+      # zhparser 中文分词配置
+      zhparser:
+        # 短词复合模式 - 启用后提高召回率
+        multi-short: ${RAG_ZHPARSER_MULTI_SHORT:true}
+        # 散字二元复合模式
+        multi-duality: ${RAG_ZHPARSER_MULTI_DUALITY:false}
+        # 忽略标点符号
+        punctuation-ignore: ${RAG_ZHPARSER_PUNCTUATION_IGNORE:true}
+        # 自定义词典路径（用于小说特定术语：角色名、地名、武功招式等）
+        custom-dict-path: ${RAG_ZHPARSER_CUSTOM_DICT_PATH:}
+    
+    # 重排序配置
+    reranker:
+      enabled: ${RAG_RERANKER_ENABLED:true}
+      provider: ${RAG_RERANKER_PROVIDER:local-bge}
+      endpoint: ${RAG_RERANKER_ENDPOINT:http://localhost:8082}
+      api-path: ${RAG_RERANKER_API_PATH:/rerank}
+      model: ${RAG_RERANKER_MODEL:bge-reranker-v2-m3}
+      timeout-ms: ${RAG_RERANKER_TIMEOUT:3000}
+      max-retries: ${RAG_RERANKER_MAX_RETRIES:2}
+      retry-delay-ms: ${RAG_RERANKER_RETRY_DELAY:100}
+      top-k-multiplier: ${RAG_RERANKER_TOP_K_MULTIPLIER:2}
+      enable-fallback: ${RAG_RERANKER_ENABLE_FALLBACK:true}
+      enable-cache: ${RAG_RERANKER_ENABLE_CACHE:true}
+      cache-max-size: ${RAG_RERANKER_CACHE_MAX_SIZE:1000}
+      cache-expiration-ms: ${RAG_RERANKER_CACHE_EXPIRATION:300000}
+      circuit-breaker:
+        enabled: ${RAG_RERANKER_CIRCUIT_BREAKER_ENABLED:true}
+        failure-threshold: ${RAG_RERANKER_FAILURE_THRESHOLD:3}
+        recovery-timeout-ms: ${RAG_RERANKER_RECOVERY_TIMEOUT:20000}
+    
+    # 检索策略配置
+    search:
+      # 是否使用父子块检索策略（小块检索，大块返回）
+      use-parent-child: ${RAG_USE_PARENT_CHILD:true}

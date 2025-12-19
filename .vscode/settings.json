@@ -1,0 +1,5 @@
+{
+    "editor.fontSize": 16,
+    "java.compile.nullAnalysis.mode": "automatic",
+    "kiroAgent.configureMCP": "Disabled"
+}
